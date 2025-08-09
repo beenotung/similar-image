@@ -20,8 +20,15 @@ import { toSlug } from '../format/slug.js'
 import { BackToLink } from '../components/back-to-link.js'
 import { readdirSync, statSync } from 'fs'
 import { Router } from 'express'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { format_byte } from '@beenotung/tslib/format.js'
+import { loadImageModel, PreTrainedImageModels } from 'tensorflow-helpers'
+import * as tf from '@tensorflow/tfjs-node'
+
+let baseModel = await loadImageModel({
+  spec: PreTrainedImageModels.mobilenet['mobilenet-v3-large-100'],
+  dir: 'saved_model/base_model',
+})
 
 let pageTitle = (
   <Locale en="Find Similar Images" zh_hk="尋找相似圖片" zh_cn="寻找相似图片" />
@@ -48,40 +55,43 @@ let style = Style(/* css */ `
 }
 `)
 
-let page = (
-  <>
-    {style}
-    <div id="Similar">
-      <h1>{pageTitle}</h1>
-      <Main />
-    </div>
-  </>
-)
-
 type Image = {
   file: string
   filename: string
   size: number
+  embedding: tf.Tensor
+  features: Float32Array
 }
 
-function scanImages(dir: string): Image[] {
+async function scanImages(dir: string): Promise<Image[]> {
   let filenames = readdirSync(dir)
-  return filenames
-    .filter(
-      filename =>
+
+  let images: Image[] = []
+
+  for (let filename of filenames) {
+    if (
+      !(
         filename.endsWith('.jpg') ||
         filename.endsWith('.png') ||
-        filename.endsWith('.jpeg'),
-    )
-    .map(filename => {
-      let file = join(dir, filename)
-      let stat = statSync(file)
-      return {
-        file,
-        filename,
-        size: stat.size,
-      }
+        filename.endsWith('.jpeg')
+      )
+    ) {
+      continue
+    }
+    let file = join(dir, filename)
+    let stat = statSync(file)
+    let embedding = await baseModel.imageFileToEmbedding(file)
+    let features = embedding.dataSync() as Float32Array
+    images.push({
+      file,
+      filename,
+      size: stat.size,
+      embedding,
+      features,
     })
+  }
+
+  return images
 }
 
 function findSimilar(images: Image[]) {
@@ -89,7 +99,7 @@ function findSimilar(images: Image[]) {
   let result = {
     a: images[0],
     b: images[0],
-    similarity: -1,
+    similarity: -Infinity,
   }
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
@@ -105,16 +115,22 @@ function findSimilar(images: Image[]) {
 }
 
 function calculateSimilarity(a: Image, b: Image) {
-  let diff = Math.abs(a.size - b.size)
-  let total = a.size + b.size
-  let similarity = 1 - diff / total
-  return similarity
+  let acc = 0
+  for (let i = 0; i < a.features.length; i++) {
+    let diff = a.features[i] - b.features[i]
+    acc += diff * diff
+  }
+  return -acc
 }
 
-function Main(attrs: {}, context: DynamicContext) {
-  let params = new URLSearchParams(context.routerMatch?.search)
-  let scan_dir = params.get('scan_dir')
-
+function Page(
+  attrs: {
+    scan_dir: string | null
+    images: Image[]
+  },
+  context: DynamicContext,
+) {
+  let { scan_dir, images } = attrs
   function renderImage(image: Image) {
     let params = new URLSearchParams({ file: image.file })
     return (
@@ -129,18 +145,22 @@ function Main(attrs: {}, context: DynamicContext) {
 
   function renderImageList() {
     if (!scan_dir) return null
-    let images = scanImages(scan_dir)
     let result = findSimilar(images)
     return (
       <>
-        <h2>Images</h2>
-        <div class="image-list">
-          {renderImage(result.a)}
-          <div class="similarity-info">
-            <div>Similarity: {result.similarity.toFixed(3)}</div>
-            <div>Distance: {(1 - result.similarity).toFixed(3)}</div>
+        {style}
+        <div id="Similar">
+          <h1>{pageTitle}</h1>
+
+          <h2>Images</h2>
+          <div class="image-list">
+            {renderImage(result.a)}
+            <div class="similarity-info">
+              <div>Similarity: {result.similarity.toFixed(3)}</div>
+              <div>Distance: {(1 - result.similarity).toFixed(3)}</div>
+            </div>
+            {renderImage(result.b)}
           </div>
-          {renderImage(result.b)}
         </div>
       </>
     )
@@ -321,6 +341,7 @@ function attachRoutes(app: Router) {
       res.status(400).send('missing file in req.query')
       return
     }
+    file = resolve(file)
     res.sendFile(file)
   })
 }
@@ -328,9 +349,19 @@ function attachRoutes(app: Router) {
 let routes = {
   '/similar': {
     menuText: pageTitle,
-    title: <Title t={pageTitle} />,
-    description: 'TODO',
-    node: page,
+    async resolve(context) {
+      let params = new URLSearchParams(context.routerMatch?.search)
+      let scan_dir = params.get('scan_dir')
+      let images: Image[] = []
+      if (scan_dir) {
+        images = await scanImages(scan_dir)
+      }
+      return {
+        title: <Title t={pageTitle} />,
+        description: 'TODO',
+        node: <Page scan_dir={scan_dir} images={images} />,
+      }
+    },
   },
   '/similar/add': {
     title: <Title t={addPageTitle} />,
