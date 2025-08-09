@@ -30,6 +30,20 @@ let baseModel = await loadImageModel({
   dir: 'saved_model/base_model',
 })
 
+let classifierModel = tf.sequential()
+{
+  // input shape: 2x1280
+  classifierModel.add(tf.layers.inputLayer({ inputShape: [2, 1280] }))
+  // layer shape: 2x1280 -> 2560
+  classifierModel.add(tf.layers.flatten())
+  // layer shape: 2560 -> 256
+  classifierModel.add(tf.layers.dense({ units: 256, activation: 'relu' }))
+  // layer shape: 256 -> 32
+  classifierModel.add(tf.layers.dense({ units: 32, activation: 'relu' }))
+  // layer shape: 32 -> 1
+  classifierModel.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }))
+}
+
 let pageTitle = (
   <Locale en="Find Similar Images" zh_hk="尋找相似圖片" zh_cn="寻找相似图片" />
 )
@@ -60,7 +74,6 @@ type Image = {
   filename: string
   size: number
   embedding: tf.Tensor
-  features: Float32Array
 }
 
 async function scanImages(dir: string): Promise<Image[]> {
@@ -81,13 +94,11 @@ async function scanImages(dir: string): Promise<Image[]> {
     let file = join(dir, filename)
     let stat = statSync(file)
     let embedding = await baseModel.imageFileToEmbedding(file)
-    let features = embedding.dataSync() as Float32Array
     images.push({
       file,
       filename,
       size: stat.size,
       embedding,
-      features,
     })
   }
 
@@ -115,12 +126,10 @@ function findSimilar(images: Image[]) {
 }
 
 function calculateSimilarity(a: Image, b: Image) {
-  let acc = 0
-  for (let i = 0; i < a.features.length; i++) {
-    let diff = a.features[i] - b.features[i]
-    acc += diff * diff
-  }
-  return -acc
+  let x = tf.stack([a.embedding.concat(b.embedding)])
+  let y = classifierModel.predict(x) as tf.Tensor
+  let data = y.dataSync()
+  return data[0]
 }
 
 function Page(
