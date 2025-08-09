@@ -1,0 +1,4 @@
+user=node
+host=similar-image.cc
+root_dir=/home/node/workspace/github.com/beenotung/similar-image
+pm2_name="similar-image"
