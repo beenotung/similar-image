@@ -74,6 +74,21 @@ timezone text NULL
 timezone_offset integer NULL
 
 
+image
+-----
+id integer PK
+file text
+embedding blob
+
+
+annotation
+----------
+id integer PK
+a_image_id integer FK >0- image.id
+b_image_id integer FK >0- image.id
+is_similar boolean
+
+
 # zoom: 1.000
 # view: (0, 0)
 # text-bg: #6495ed
@@ -90,3 +105,5 @@ timezone_offset integer NULL
 # ua_bot (845, 410)
 # ua_stat (715, 60)
 # request_session (450, 445)
+# image (55, 415)
+# annotation (58, 629)

@@ -1,4 +1,5 @@
 import { o } from '../jsx/jsx.js'
+import { find } from 'better-sqlite3-proxy'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
@@ -43,6 +44,11 @@ let classifierModel = tf.sequential()
   // layer shape: 32 -> 1
   classifierModel.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }))
 }
+classifierModel.compile({
+  optimizer: tf.train.adam(),
+  loss: 'binaryCrossentropy',
+  metrics: ['accuracy'],
+})
 
 let pageTitle = (
   <Locale en="Find Similar Images" zh_hk="尋找相似圖片" zh_cn="寻找相似图片" />
@@ -76,6 +82,8 @@ type Image = {
   embedding: tf.Tensor
 }
 
+let embeddingCache = new Map<string, tf.Tensor>()
+
 async function scanImages(dir: string): Promise<Image[]> {
   let filenames = readdirSync(dir)
 
@@ -93,7 +101,28 @@ async function scanImages(dir: string): Promise<Image[]> {
     }
     let file = join(dir, filename)
     let stat = statSync(file)
-    let embedding = await baseModel.imageFileToEmbedding(file)
+    let row = find(proxy.image, { file })
+    async function getEmbedding(): Promise<tf.Tensor> {
+      let cached = embeddingCache.get(file)
+      if (cached) {
+        return cached
+      }
+      if (row) {
+        let buffer = row.embedding
+        let float32Array = new Float32Array(buffer.buffer)
+        let tensor = tf.tensor(float32Array, [1, 1280])
+        embeddingCache.set(file, tensor)
+        return tensor
+      }
+      let embedding = await baseModel.imageFileToEmbedding(file)
+      proxy.image.push({
+        file,
+        embedding: Buffer.from(embedding.dataSync().buffer),
+      })
+      embeddingCache.set(file, embedding)
+      return embedding
+    }
+    let embedding = await getEmbedding()
     images.push({
       file,
       filename,

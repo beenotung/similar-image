@@ -58,6 +58,21 @@ export type RequestLog = {
   timestamp: number
 }
 
+export type Image = {
+  id?: null | number
+  file: string
+  embedding: Buffer
+}
+
+export type Annotation = {
+  id?: null | number
+  a_image_id: number
+  a_image?: Image
+  b_image_id: number
+  b_image?: Image
+  is_similar: boolean
+}
+
 export type DBProxy = {
   method: Method[]
   url: Url[]
@@ -67,6 +82,8 @@ export type DBProxy = {
   user_agent: UserAgent[]
   ua_stat: UaStat[]
   request_log: RequestLog[]
+  image: Image[]
+  annotation: Annotation[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -89,6 +106,12 @@ export let proxy = proxySchema<DBProxy>({
       ['url', { field: 'url_id', table: 'url' }],
       ['user_agent', { field: 'user_agent_id', table: 'user_agent' }],
       ['request_session', { field: 'request_session_id', table: 'request_session' }],
+    ],
+    image: [],
+    annotation: [
+      /* foreign references */
+      ['a_image', { field: 'a_image_id', table: 'image' }],
+      ['b_image', { field: 'b_image_id', table: 'image' }],
     ],
   },
 })
