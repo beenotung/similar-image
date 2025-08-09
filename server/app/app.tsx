@@ -2,6 +2,7 @@ import { o } from './jsx/jsx.js'
 import { scanTemplateDir } from '../template-file.js'
 import { NextFunction, Request, Response, Router } from 'express'
 import type { Context, ExpressContext, WsContext } from './context'
+import Similar from './pages/similar.js'
 import { fixLanguage } from './context.js'
 import type { Element } from './jsx/types'
 import {
@@ -177,6 +178,7 @@ function Footer(attrs: { style?: string }) {
 // prefer flat router over nested router for less overhead
 export function attachRoutes(app: Router) {
   // ajax/upload/middleware routes
+  Similar.attachRoutes(app)
 
   // redirect routes
   Object.entries(redirectDict).forEach(([from, to]) =>

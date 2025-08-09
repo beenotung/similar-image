@@ -12,7 +12,7 @@ h6 { font-size: 1.2rem }
 h1,h2,h3,h4,h5,h6 { margin: 1em 0 0.5em }
 
 .app {
-  max-width: 1089px;
+  max-width: 1280px;
   margin: auto;
 }
 `

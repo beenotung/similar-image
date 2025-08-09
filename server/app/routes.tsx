@@ -1,3 +1,4 @@
+import Similar from './pages/similar.js'
 import { capitalize } from '@beenotung/tslib/string.js'
 import { Router } from 'url-router.ts'
 import { LayoutType, config, title } from '../config.js'
@@ -65,6 +66,7 @@ export type Routes = Record<string, PageRoute>
 
 // TODO direct support alternative urls instead of having to repeat the entry
 let routeDict = {
+  ...Similar.routes,
   ...Home.routes,
   ...DemoPlugin.routes,
   ...UILanguage.routes,
