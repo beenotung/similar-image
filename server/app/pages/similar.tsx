@@ -62,20 +62,22 @@ async function newModel() {
     ys.push([row.is_similar ? 1 : 0])
   }
 
-  let x = tf.tensor(xs)
-  let y = tf.tensor(ys)
+  if (xs.length > 0) {
+    let x = tf.tensor(xs)
+    let y = tf.tensor(ys)
 
-  await classifierModel.fit(x, y, {
-    epochs: 5,
-    verbose: 0,
-    callbacks: {
-      onEpochEnd(epoch, logs) {
-        let accuracy = logs?.acc
-        let loss = logs?.loss
-        console.log({ epoch, accuracy, loss })
+    await classifierModel.fit(x, y, {
+      epochs: 5,
+      verbose: 0,
+      callbacks: {
+        onEpochEnd(epoch, logs) {
+          let accuracy = logs?.acc
+          let loss = logs?.loss
+          console.log({ epoch, accuracy, loss })
+        },
       },
-    },
-  })
+    })
+  }
 
   return classifierModel
 }
