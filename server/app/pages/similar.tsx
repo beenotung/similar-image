@@ -1,5 +1,5 @@
 import { o } from '../jsx/jsx.js'
-import { find } from 'better-sqlite3-proxy'
+import { count, find, seedRow } from 'better-sqlite3-proxy'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
@@ -10,7 +10,7 @@ import {
   throwIfInAPI,
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
-import { object, string } from 'cast.ts'
+import { boolean, id, int, object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { Locale, Title } from '../components/locale.js'
@@ -25,6 +25,7 @@ import { join, resolve } from 'path'
 import { format_byte } from '@beenotung/tslib/format.js'
 import { loadImageModel, PreTrainedImageModels } from 'tensorflow-helpers'
 import * as tf from '@tensorflow/tfjs-node'
+import { toRouteUrl } from '../../url.js'
 
 let baseModel = await loadImageModel({
   spec: PreTrainedImageModels.mobilenet['mobilenet-v3-large-100'],
@@ -75,11 +76,53 @@ let style = Style(/* css */ `
   max-height: 100%;
 }
 .similarity-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.similarity-info--text {
   text-align: end;
+  width: fit-content;
+}
+.similarity-info--buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+`)
+
+let script = Script(/* js */ `
+function markSimilar(is_similar) {
+  let [a_image_id, b_image_id] = Array.from(
+    document.body.querySelectorAll('[data-image-id]'),
+    node => node.dataset.imageId,
+  )
+  let scan_dir = document.querySelector('input[name="scan_dir"]')?.value
+  console.log({ a_image_id, b_image_id, scan_dir, is_similar })
+  emit('/similar/add/submit', {
+    a_image_id,
+    b_image_id,
+    is_similar,
+    scan_dir,
+  })
+}
+window.markSimilar = markSimilar
+
+if (!window.markSimilarByKeyboard) {
+  window.markSimilarByKeyboard = true
+  console.log('attach keypress listener')
+  window.addEventListener('keypress', (event) => {
+    if (event.key === '1') {
+      window.markSimilar(1)
+    } else if (event.key === '2') {
+      window.markSimilar(0)
+    }
+  })
 }
 `)
 
 type Image = {
+  id: number
   file: string
   filename: string
   size: number
@@ -127,7 +170,9 @@ async function scanImages(dir: string): Promise<Image[]> {
       return embedding
     }
     let embedding = await getEmbedding()
+    let image = find(proxy.image, { file })!
     images.push({
+      id: image.id!,
       file,
       filename,
       size: stat.size,
@@ -139,6 +184,7 @@ async function scanImages(dir: string): Promise<Image[]> {
 }
 
 function findSimilar(images: Image[]) {
+  images.sort((a, b) => a.id - b.id)
   let n = images.length
   let result = {
     a: images[0],
@@ -146,9 +192,16 @@ function findSimilar(images: Image[]) {
     similarity: -Infinity,
   }
   for (let i = 0; i < n; i++) {
+    let a = images[i]
     for (let j = i + 1; j < n; j++) {
-      let a = images[i]
       let b = images[j]
+      let has_annotation = count(proxy.annotation, {
+        a_image_id: a.id,
+        b_image_id: b.id,
+      })
+      if (has_annotation) {
+        continue
+      }
       let newSimilar = calculateSimilarity(a, b)
       if (newSimilar > result.similarity) {
         result = { a, b, similarity: newSimilar }
@@ -176,7 +229,7 @@ function Page(
   function renderImage(image: Image) {
     let params = new URLSearchParams({ file: image.file })
     return (
-      <div class="image-item">
+      <div class="image-item" data-image-id={image.id}>
         <div>
           {image.filename} ({format_byte(image.size)})
         </div>
@@ -198,12 +251,19 @@ function Page(
           <div class="image-list">
             {renderImage(result.a)}
             <div class="similarity-info">
-              <div>Similarity: {result.similarity.toFixed(3)}</div>
-              <div>Distance: {(1 - result.similarity).toFixed(3)}</div>
+              <div class="similarity-info--text">
+                <div>Similarity: {result.similarity.toFixed(3)}</div>
+                <div>Distance: {(1 - result.similarity).toFixed(3)}</div>
+              </div>
+              <div class="similarity-info--buttons">
+                <button onclick="markSimilar(true)">[1] Similar</button>
+                <button onclick="markSimilar(false)">[2] Not Similar</button>
+              </div>
             </div>
             {renderImage(result.b)}
           </div>
         </div>
+        {script}
       </>
     )
   }
@@ -326,20 +386,32 @@ let addPage = (
 )
 
 let submitParser = object({
-  title: string({ minLength: 3, maxLength: 50 }),
-  slug: string({ match: /^[\w-]{1,32}$/ }),
+  a_image_id: id(),
+  b_image_id: id(),
+  is_similar: boolean(),
+  scan_dir: string(),
 })
 
 function Submit(attrs: {}, context: DynamicContext) {
   try {
     let body = getContextFormBody(context)
     let input = submitParser.parse(body)
-    // let id = items.push({
-    //   title: input.title,
-    //   slug: input.slug,
-    // })
-    let id = 'TODO'
-    return <Redirect href={`/similar/result?id=${id}`} />
+    let [a_image_id, b_image_id] =
+      input.a_image_id < input.b_image_id
+        ? [input.a_image_id, input.b_image_id]
+        : [input.b_image_id, input.a_image_id]
+    let id = seedRow(
+      proxy.annotation,
+      { a_image_id, b_image_id },
+      { is_similar: input.is_similar },
+    )
+    return (
+      <Redirect
+        href={toRouteUrl(routes, '/similar', {
+          query: { scan_dir: input.scan_dir },
+        })}
+      />
+    )
   } catch (error) {
     throwIfInAPI(error, '#add-message', context)
     return (
