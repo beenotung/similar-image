@@ -38,9 +38,9 @@ let classifierModel = tf.sequential()
   // layer shape: 2x1280 -> 2560
   classifierModel.add(tf.layers.flatten())
   // layer shape: 2560 -> 256
-  classifierModel.add(tf.layers.dense({ units: 256, activation: 'relu' }))
+  classifierModel.add(tf.layers.dense({ units: 256, activation: 'gelu' }))
   // layer shape: 256 -> 32
-  classifierModel.add(tf.layers.dense({ units: 32, activation: 'relu' }))
+  classifierModel.add(tf.layers.dense({ units: 32, activation: 'gelu' }))
   // layer shape: 32 -> 1
   classifierModel.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }))
 }
