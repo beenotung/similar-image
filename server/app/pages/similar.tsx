@@ -32,8 +32,9 @@ let baseModel = await loadImageModel({
   dir: 'saved_model/base_model',
 })
 
-let classifierModel = tf.sequential()
-{
+async function newModel() {
+  let classifierModel = tf.sequential()
+
   // input shape: 2x1280
   classifierModel.add(tf.layers.inputLayer({ inputShape: [2, 1280] }))
   // layer shape: 2x1280 -> 2560
@@ -44,12 +45,40 @@ let classifierModel = tf.sequential()
   classifierModel.add(tf.layers.dense({ units: 32, activation: 'gelu' }))
   // layer shape: 32 -> 1
   classifierModel.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }))
+
+  classifierModel.compile({
+    optimizer: tf.train.adam(),
+    loss: 'binaryCrossentropy',
+    metrics: ['accuracy'],
+  })
+
+  let xs = []
+  let ys = []
+  for (let row of proxy.annotation) {
+    let a = new Float32Array(row.a_image!.embedding.buffer)
+    let b = new Float32Array(row.b_image!.embedding.buffer)
+    xs.push([a, b])
+    ys.push([row.is_similar ? 1 : 0])
+  }
+
+  let x = tf.tensor(xs)
+  let y = tf.tensor(ys)
+
+  await classifierModel.fit(x, y, {
+    epochs: 5,
+    verbose: 0,
+    callbacks: {
+      onEpochEnd(epoch, logs) {
+        let accuracy = logs?.acc
+        let loss = logs?.loss
+        console.log({ epoch, accuracy, loss })
+      },
+    },
+  })
+
+  return classifierModel
 }
-classifierModel.compile({
-  optimizer: tf.train.adam(),
-  loss: 'binaryCrossentropy',
-  metrics: ['accuracy'],
-})
+let classifierModel = await newModel()
 
 let pageTitle = (
   <Locale en="Find Similar Images" zh_hk="尋找相似圖片" zh_cn="寻找相似图片" />
@@ -231,7 +260,7 @@ function Page(
     return (
       <div class="image-item" data-image-id={image.id}>
         <div>
-          {image.filename} ({format_byte(image.size)})
+          #{image.id} {image.filename} ({format_byte(image.size)})
         </div>
         <img src={`/image?${params}`} />
       </div>
@@ -405,6 +434,7 @@ function Submit(attrs: {}, context: DynamicContext) {
       { a_image_id, b_image_id },
       { is_similar: input.is_similar },
     )
+    newModel().then(model => (classifierModel = model))
     return (
       <Redirect
         href={toRouteUrl(routes, '/similar', {
