@@ -1,5 +1,5 @@
 import { o } from '../jsx/jsx.js'
-import { count, find, seedRow } from 'better-sqlite3-proxy'
+import { count, del, find, seedRow } from 'better-sqlite3-proxy'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
@@ -27,6 +27,7 @@ import { loadImageModel, PreTrainedImageModels } from 'tensorflow-helpers'
 import * as tf from '@tensorflow/tfjs-node'
 import { toRouteUrl } from '../../url.js'
 import { stat } from 'fs/promises'
+import { Button } from '../components/button.js'
 
 let baseModel = await loadImageModel({
   spec: PreTrainedImageModels.mobilenet['mobilenet-v3-large-100'],
@@ -341,9 +342,7 @@ function Page(
         </div>
       </form>
       {renderImageList()}
-      <Link href="/similar/add">
-        <button>{addPageTitle}</button>
-      </Link>
+      <Button url={toRouteUrl(routes, '/similar/reset')}>Reset</Button>
     </>
   )
 }
@@ -512,6 +511,12 @@ function SubmitResult(attrs: {}, context: DynamicContext) {
   )
 }
 
+function Reset(attrs: {}, context: DynamicContext) {
+  imagesCache.clear()
+  proxy.annotation.length = 0
+  return <Redirect href={toRouteUrl(routes, '/similar')} />
+}
+
 function attachRoutes(app: Router) {
   app.get('/image', (req, res) => {
     let file = req.query.file
@@ -549,8 +554,14 @@ let routes = {
   },
   '/similar/add/submit': {
     title: apiEndpointTitle,
-    description: 'TODO',
+    description: 'Mark two images as similar or not',
     node: <Submit />,
+    streaming: false,
+  },
+  '/similar/reset': {
+    title: apiEndpointTitle,
+    description: 'Delete all similar annotations',
+    node: <Reset />,
     streaming: false,
   },
   '/similar/result': {
