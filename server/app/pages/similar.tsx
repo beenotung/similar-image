@@ -21,11 +21,12 @@ import { toSlug } from '../format/slug.js'
 import { BackToLink } from '../components/back-to-link.js'
 import { readdirSync, statSync } from 'fs'
 import { Router } from 'express'
-import { join, resolve } from 'path'
+import { basename, join, resolve } from 'path'
 import { format_byte } from '@beenotung/tslib/format.js'
 import { loadImageModel, PreTrainedImageModels } from 'tensorflow-helpers'
 import * as tf from '@tensorflow/tfjs-node'
 import { toRouteUrl } from '../../url.js'
+import { stat } from 'fs/promises'
 
 let baseModel = await loadImageModel({
   spec: PreTrainedImageModels.mobilenet['mobilenet-v3-large-100'],
@@ -161,9 +162,52 @@ type Image = {
   embedding: tf.Tensor
 }
 
-let embeddingCache = new Map<string, tf.Tensor>()
+// file -> Image
+let imageCache = new Map<string, Image>()
+async function getImage(file: string): Promise<Image> {
+  let cached = imageCache.get(file)
+  if (cached) {
+    return cached
+  }
+  let row = find(proxy.image, { file })
+  if (row) {
+    let buffer = row.embedding
+    let float32Array = new Float32Array(buffer.buffer)
+    let tensor = tf.tensor(float32Array, [1, 1280])
+    let image: Image = {
+      id: row.id!,
+      file,
+      filename: basename(file),
+      size: (await stat(file)).size,
+      embedding: tensor,
+    }
+    imageCache.set(file, image)
+    return image
+  }
+  let embedding = await baseModel.imageFileToEmbedding(file)
+  let id = proxy.image.push({
+    file,
+    embedding: Buffer.from((await embedding.data()).buffer),
+  })
+  let image: Image = {
+    id,
+    file,
+    filename: basename(file),
+    size: (await stat(file)).size,
+    embedding,
+  }
+  imageCache.set(file, image)
+  return image
+}
 
+// scan_dir -> Image[]
+let imagesCache = new Map<string, Image[]>()
 async function scanImages(dir: string): Promise<Image[]> {
+  let cached = imagesCache.get(dir)
+  if (cached) {
+    return cached
+  }
+
   let filenames = readdirSync(dir)
 
   let images: Image[] = []
@@ -179,39 +223,11 @@ async function scanImages(dir: string): Promise<Image[]> {
       continue
     }
     let file = join(dir, filename)
-    let stat = statSync(file)
-    let row = find(proxy.image, { file })
-    async function getEmbedding(): Promise<tf.Tensor> {
-      let cached = embeddingCache.get(file)
-      if (cached) {
-        return cached
-      }
-      if (row) {
-        let buffer = row.embedding
-        let float32Array = new Float32Array(buffer.buffer)
-        let tensor = tf.tensor(float32Array, [1, 1280])
-        embeddingCache.set(file, tensor)
-        return tensor
-      }
-      let embedding = await baseModel.imageFileToEmbedding(file)
-      proxy.image.push({
-        file,
-        embedding: Buffer.from(embedding.dataSync().buffer),
-      })
-      embeddingCache.set(file, embedding)
-      return embedding
-    }
-    let embedding = await getEmbedding()
-    let image = find(proxy.image, { file })!
-    images.push({
-      id: image.id!,
-      file,
-      filename,
-      size: stat.size,
-      embedding,
-    })
+    let image = await getImage(file)
+    images.push(image)
   }
 
+  imagesCache.set(dir, images)
   return images
 }
 
@@ -223,7 +239,14 @@ function findSimilar(images: Image[]) {
     b: images[0],
     similarity: -Infinity,
   }
+  let start = Date.now()
   for (let i = 0; i < n; i++) {
+    let p = ((i / n) * 100).toFixed(2)
+    process.stdout.write(`\r> findSimilar: (${i + 1}/${n}) ${p}%`)
+    let elapsed = Date.now() - start
+    if (elapsed > 1000) {
+      break
+    }
     let a = images[i]
     for (let j = i + 1; j < n; j++) {
       let b = images[j]
@@ -240,6 +263,7 @@ function findSimilar(images: Image[]) {
       }
     }
   }
+  process.stdout.write(`\n`)
   return result
 }
 
@@ -437,7 +461,10 @@ function Submit(attrs: {}, context: DynamicContext) {
       { a_image_id, b_image_id },
       { is_similar: input.is_similar },
     )
-    newModel().then(model => (classifierModel = model))
+    newModel().then(model => {
+      imagesCache.clear()
+      classifierModel = model
+    })
     return (
       <Redirect
         href={toRouteUrl(routes, '/similar', {
