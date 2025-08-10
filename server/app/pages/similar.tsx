@@ -97,12 +97,15 @@ let style = Style(/* css */ `
 }
 .image-item {
   --size: 30rem;
-  max-width: var(--size);
-  max-height: var(--size);
+  width: var(--size);
+  height: var(--size);
+  display: flex;
+  flex-direction: column;
 }
 .image-item img {
   max-width: 100%;
   max-height: 100%;
+  margin: auto;
 }
 .similarity-info {
   display: flex;
