@@ -70,6 +70,10 @@ let style = Style(/* css */ `
   max-width: var(--size);
   max-height: var(--size);
 }
+.image-item img {
+  max-width: 100%;
+  max-height: 100%;
+}
 .similarity-info {
   text-align: end;
 }
