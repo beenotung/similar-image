@@ -243,7 +243,7 @@ function findSimilar(images: Image[]) {
   }
   let start = Date.now()
   for (let i = 0; i < n; i++) {
-    let p = ((i / n) * 100).toFixed(2)
+    let p = (((i + 1) / n) * 100).toFixed(2)
     process.stdout.write(`\r> findSimilar: (${i + 1}/${n}) ${p}%`)
     let elapsed = Date.now() - start
     if (elapsed > 1000) {
