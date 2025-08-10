@@ -242,6 +242,7 @@ function findSimilar(images: Image[]) {
     similarity: -Infinity,
   }
   let start = Date.now()
+  let candidates = 0
   for (let i = 0; i < n; i++) {
     let p = (((i + 1) / n) * 100).toFixed(2)
     process.stdout.write(`\r> findSimilar: (${i + 1}/${n}) ${p}%`)
@@ -259,13 +260,14 @@ function findSimilar(images: Image[]) {
       if (has_annotation) {
         continue
       }
+      candidates++
       let newSimilar = calculateSimilarity(a, b)
       if (newSimilar > result.similarity) {
         result = { a, b, similarity: newSimilar }
       }
     }
   }
-  process.stdout.write(`\n`)
+  process.stdout.write(`\n> findSimilar: ${candidates} candidates\n`)
   return result
 }
 
